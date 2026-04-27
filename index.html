@@ -208,6 +208,32 @@
       }
     }
 
+  
+    /* PRESENTATION-SIZE MAIN DRAWING */
+    canvas#c {
+      width: 100% !important;
+      height: 78vh !important;
+      min-height: 720px !important;
+      max-height: 980px !important;
+      display: block !important;
+      border-radius: 10px !important;
+    }
+
+    @media (max-width: 700px) {
+      canvas#c {
+        height: 74vh !important;
+        min-height: 620px !important;
+        max-height: none !important;
+      }
+    }
+
+    @media (orientation: landscape) and (max-width: 950px) {
+      canvas#c {
+        height: 82vh !important;
+        min-height: 520px !important;
+      }
+    }
+
   </style>
 </head>
 <body>
@@ -1566,7 +1592,8 @@ function svgArrow(x1,y1,x2,y2,text,dashed=false){
   `;
 }
 
-function openVectorLayoutView(){
+
+function generateVectorLayoutSVG(){
   bindDomGlobals();
   syncFixtureOptions();
 
@@ -1578,8 +1605,7 @@ function openVectorLayoutView(){
   const locked = type === "dropin" && gridMode.value === "locked";
 
   if(!L || !W || !N){
-    alert("Enter room size and fixture count first.");
-    return;
+    return {error: "Enter room size and fixture count first."};
   }
 
   let rows = Math.floor(Math.sqrt(N));
@@ -1594,7 +1620,6 @@ function openVectorLayoutView(){
   let fixtureSvg = "";
   const sizeVal = fixtureSize.value;
 
-  // Optional ceiling grid for drop-in
   let gridSvg = "";
   if(type === "dropin" && showGrid && showGrid.checked){
     for(let x=0; x<=L; x+=24){
@@ -1605,7 +1630,6 @@ function openVectorLayoutView(){
     }
   }
 
-  // Optional stud/joist lines for can lights
   let studSvg = "";
   if(type === "canlight" && showStuds && showStuds.value === "yes"){
     const first = parseFloat(firstStud.value || 0);
@@ -1646,7 +1670,6 @@ function openVectorLayoutView(){
   });
 
   let dimSvg = "";
-  // Overall room dimensions
   dimSvg += svgArrow(0,-18,L,-18,fmt(L));
   dimSvg += svgArrow(-18,0,-18,W,fmt(W));
 
@@ -1671,9 +1694,6 @@ function openVectorLayoutView(){
     dimSvg += svgArrow(firstCol[i].xIn-10,firstCol[i].yIn,firstCol[i+1].xIn-10,firstCol[i+1].yIn,fmt(firstCol[i+1].yIn-firstCol[i].yIn),true);
   }
 
-  const job = (document.getElementById("brandJob")?.value || "Lighting Layout");
-  const room = (document.getElementById("brandRoom")?.value || "Room");
-
   const svg = `
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb}">
     <defs>
@@ -1692,6 +1712,20 @@ function openVectorLayoutView(){
     ${fixtureSvg}
     ${dimSvg}
   </svg>`;
+
+  return {svg, L, W};
+}
+
+
+function openVectorLayoutView(){
+  const result = generateVectorLayoutSVG();
+  if(result.error){
+    alert(result.error);
+    return;
+  }
+
+  const job = (document.getElementById("brandJob")?.value || "Lighting Layout");
+  const room = (document.getElementById("brandRoom")?.value || "Room");
 
   const w = window.open("", "_blank");
   if(!w){
@@ -1714,7 +1748,7 @@ function openVectorLayoutView(){
 </head>
 <body>
   <div class="bar">LightLayout 1:3 — Vector Layout<br><small>${svgEsc(job)} — ${svgEsc(room)} | Sharp SVG view. Pinch zoom normally.</small></div>
-  <div class="wrap">${svg}</div>
+  <div class="wrap">${result.svg}</div>
 </body>
 </html>`);
   w.document.close();
@@ -2152,6 +2186,7 @@ function exportSimpleJobSheet(){
   // Just capture the current drawing exactly as shown.
   // If you want install-only drawing, switch Workflow Mode to Install Mode first.
   draw();
+  const vectorResult = generateVectorLayoutSVG();
   const img = canvas.toDataURL("image/png");
 
   const company = simpleValue("brandCompany", "Your Company");
@@ -2194,8 +2229,9 @@ function exportSimpleJobSheet(){
     .box h3 { margin: 0 0 8px; font-size: 16px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
     .row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px dotted #ccc; font-size: 13px; }
     .row:last-child { border-bottom: none; }
-    .layoutBox { width: 100%; height: 5.6in; background: #0c0c0c; border: 3px solid #111; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .layoutBox { width: 100%; height: 6.05in; background: #0c0c0c; border: 3px solid #111; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .layoutBox img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+    .layoutBox svg { width: 100%; height: 100%; display: block; }
     .note { margin-top: 10px; font-size: 11px; color: #444; }
     @page { size: letter landscape; margin: 0.25in; }
     @media print { .page { break-after: page; } }
@@ -2245,7 +2281,7 @@ function exportSimpleJobSheet(){
       <div class="title">LightLayout 1:3 Layout Drawing<div class="sub">App View / Field Reference</div></div>
       <div class="company"><strong>${company}</strong><br>${phone ? phone + "<br>" : ""}${email ? email + "<br>" : ""}Date: ${date}</div>
     </div>
-    <div class="layoutBox"><img src="${img}"></div>
+    <div class="layoutBox">${vectorResult.svg || '<img src="' + img + '">'}</div>
     <div class="note">This page captures the current app view. For jobsite layout, switch to Install Mode first, then export.</div>
   </div>
 
