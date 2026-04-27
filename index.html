@@ -204,7 +204,7 @@
         max-height: 720px !important;
         display: block !important;
         border-radius: 8px !important;
-        touch-action: auto;
+        touch-action: manipulation;
       }
     }
 
@@ -228,40 +228,45 @@
     }
 
   
-    /* MOBILE DRAWING PAN / ZOOM WRAPPER */
+    /* DRAWING-ONLY PAN + PINCH ZOOM */
     .drawing-viewport {
       width: 100%;
-      overflow: auto;
-      -webkit-overflow-scrolling: touch;
-      border-radius: 8px;
+      height: 70vh;
+      min-height: 520px;
+      overflow: hidden;
       border: 1px solid #35424d;
+      border-radius: 8px;
       background: #050608;
-      touch-action: auto;
+      position: relative;
+      touch-action: none;
+      user-select: none;
+    }
+
+    .drawing-inner {
+      width: 100%;
+      height: 100%;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+
+    .drawing-viewport canvas {
+      width: 100% !important;
+      height: 100% !important;
+      display: block !important;
+      touch-action: none;
     }
 
     @media (max-width: 700px) {
       .drawing-viewport {
-        max-height: 72vh;
-        overflow: auto;
-      }
-
-      .drawing-viewport canvas {
-        width: 900px !important;
-        max-width: none !important;
-        height: 650px !important;
-        min-height: 650px !important;
+        height: 72vh;
+        min-height: 560px;
       }
     }
 
     @media (orientation: landscape) and (max-width: 950px) {
       .drawing-viewport {
-        max-height: 82vh;
-      }
-
-      .drawing-viewport canvas {
-        width: 1050px !important;
-        height: 590px !important;
-        min-height: 590px !important;
+        height: 78vh;
+        min-height: 430px;
       }
     }
 
@@ -631,6 +636,7 @@ function applyJobData(data){
   }
 
   if(typeof updateTempPreview === "function") bindDomGlobals();
+setupDrawingTouchControls();
 updateTempPreview();
   if(typeof updateDimmerLabel === "function") updateDimmerLabel();
   if(typeof syncFixtureOptions === "function") syncFixtureOptions();
@@ -782,14 +788,16 @@ updateTempPreview(); draw();">
     <div>
       <div class="hint" style="margin-bottom:6px;">Phone tip: scroll sideways across the drawing for a larger, clearer layout.</div>
       <button onclick="shareLayout()" style="margin-bottom:8px;">Share Layout</button>
-      <div class="hint" style="margin-bottom:6px;">Phone tip: Use Zoom controls or pinch/scroll around the drawing.</div>
-      <div id="zoomControls" style="display:flex; gap:8px; margin-bottom:8px;">
-        <button onclick="setDrawingZoom(0.85)">Zoom Out</button>
-        <button onclick="setDrawingZoom(1)">Reset</button>
-        <button onclick="setDrawingZoom(1.2)">Zoom In</button>
+      <div id="drawingControls" style="display:flex; gap:8px; margin-bottom:8px;">
+        <button onclick="drawingZoomOut()">Zoom Out</button>
+        <button onclick="drawingZoomReset()">Reset</button>
+        <button onclick="drawingZoomIn()">Zoom In</button>
       </div>
+      <div class="hint" style="margin-bottom:6px;">Pinch/drag inside the drawing only. This will not zoom the whole page.</div>
       <div id="drawingViewport" class="drawing-viewport">
-        <canvas id="c"></canvas>
+        <div id="drawingInner" class="drawing-inner">
+          <canvas id="c"></canvas>
+        </div>
       </div>
       <div class="note">Measurements are center-to-center. Physical mode estimates foot-candles; true engineered accuracy requires manufacturer IES photometric files.</div>
     </div>
@@ -841,6 +849,142 @@ let latestLightPoints = [];
 // Phone browser compatibility:
 // Some mobile browsers do not expose elements by id as global variables.
 // This makes the existing app code work reliably on iPhone/Android.
+
+let drawingScale = 1;
+let drawingPanX = 0;
+let drawingPanY = 0;
+let lastPanX = 0;
+let lastPanY = 0;
+let isPanningDrawing = false;
+let pinchStartDistance = 0;
+let pinchStartScale = 1;
+let pinchCenterStart = {x:0,y:0};
+let activeTouchMode = null;
+
+function applyDrawingTransform(){
+  const inner = document.getElementById("drawingInner");
+  if(!inner) return;
+  inner.style.transform = `translate(${drawingPanX}px, ${drawingPanY}px) scale(${drawingScale})`;
+}
+
+function clampDrawing(){
+  const viewport = document.getElementById("drawingViewport");
+  if(!viewport) return;
+
+  const maxPanX = viewport.clientWidth * 1.5;
+  const maxPanY = viewport.clientHeight * 1.5;
+
+  drawingPanX = Math.max(-maxPanX, Math.min(maxPanX, drawingPanX));
+  drawingPanY = Math.max(-maxPanY, Math.min(maxPanY, drawingPanY));
+}
+
+function setDrawingZoomAt(newScale, cx, cy){
+  const viewport = document.getElementById("drawingViewport");
+  if(!viewport) return;
+
+  const oldScale = drawingScale;
+  newScale = Math.max(0.55, Math.min(3.0, newScale));
+
+  // Keep zoom centered around finger/button point.
+  const worldX = (cx - drawingPanX) / oldScale;
+  const worldY = (cy - drawingPanY) / oldScale;
+
+  drawingScale = newScale;
+  drawingPanX = cx - worldX * drawingScale;
+  drawingPanY = cy - worldY * drawingScale;
+
+  clampDrawing();
+  applyDrawingTransform();
+}
+
+function drawingZoomIn(){
+  const viewport = document.getElementById("drawingViewport");
+  setDrawingZoomAt(drawingScale * 1.2, viewport.clientWidth/2, viewport.clientHeight/2);
+}
+
+function drawingZoomOut(){
+  const viewport = document.getElementById("drawingViewport");
+  setDrawingZoomAt(drawingScale / 1.2, viewport.clientWidth/2, viewport.clientHeight/2);
+}
+
+function drawingZoomReset(){
+  drawingScale = 1;
+  drawingPanX = 0;
+  drawingPanY = 0;
+  applyDrawingTransform();
+}
+
+function touchDistance(t1, t2){
+  const dx = t2.clientX - t1.clientX;
+  const dy = t2.clientY - t1.clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+
+function touchCenter(t1, t2, rect){
+  return {
+    x: ((t1.clientX + t2.clientX) / 2) - rect.left,
+    y: ((t1.clientY + t2.clientY) / 2) - rect.top
+  };
+}
+
+function setupDrawingTouchControls(){
+  const viewport = document.getElementById("drawingViewport");
+  if(!viewport) return;
+
+  viewport.addEventListener("touchstart", function(e){
+    if(e.touches.length === 2){
+      e.preventDefault();
+      activeTouchMode = "pinch";
+      const rect = viewport.getBoundingClientRect();
+      pinchStartDistance = touchDistance(e.touches[0], e.touches[1]);
+      pinchStartScale = drawingScale;
+      pinchCenterStart = touchCenter(e.touches[0], e.touches[1], rect);
+    } else if(e.touches.length === 1){
+      activeTouchMode = "pan";
+      isPanningDrawing = true;
+      lastPanX = e.touches[0].clientX;
+      lastPanY = e.touches[0].clientY;
+    }
+  }, {passive:false});
+
+  viewport.addEventListener("touchmove", function(e){
+    if(e.touches.length === 2 && activeTouchMode === "pinch"){
+      e.preventDefault();
+      const rect = viewport.getBoundingClientRect();
+      const dist = touchDistance(e.touches[0], e.touches[1]);
+      const center = touchCenter(e.touches[0], e.touches[1], rect);
+      const nextScale = pinchStartScale * (dist / Math.max(1, pinchStartDistance));
+      setDrawingZoomAt(nextScale, center.x, center.y);
+    } else if(e.touches.length === 1 && activeTouchMode === "pan" && isPanningDrawing){
+      e.preventDefault();
+      const dx = e.touches[0].clientX - lastPanX;
+      const dy = e.touches[0].clientY - lastPanY;
+      drawingPanX += dx;
+      drawingPanY += dy;
+      lastPanX = e.touches[0].clientX;
+      lastPanY = e.touches[0].clientY;
+      clampDrawing();
+      applyDrawingTransform();
+    }
+  }, {passive:false});
+
+  viewport.addEventListener("touchend", function(e){
+    if(e.touches.length === 0){
+      activeTouchMode = null;
+      isPanningDrawing = false;
+    }
+  }, {passive:false});
+
+  // Desktop/laptop wheel zoom inside drawing.
+  viewport.addEventListener("wheel", function(e){
+    if(!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    setDrawingZoomAt(drawingScale * factor, e.clientX - rect.left, e.clientY - rect.top);
+  }, {passive:false});
+}
+
 function bindDomGlobals(){
   [
     "lenFt","lenIn","widFt","widIn","lights","offset","offsetEndX","offsetEndY",
@@ -1630,13 +1774,16 @@ function applyRoomPreset(){
 
 
 function selectLightFromEvent(e){
+  if(e.touches && e.touches.length > 1) return;
   if(!latestLightPoints || !latestLightPoints.length) return;
 
   const rect = canvas.getBoundingClientRect();
   const clientX = e.touches ? e.touches[0].clientX : e.clientX;
   const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-  const x = clientX - rect.left;
-  const y = clientY - rect.top;
+
+  // Because the drawing is transform-scaled/panned, convert screen coordinate back to canvas coordinate.
+  const x = (clientX - rect.left) / drawingScale;
+  const y = (clientY - rect.top) / drawingScale;
 
   let found = null;
   let bestDist = Infinity;
@@ -1685,30 +1832,6 @@ function shareLayout(){
   }
 }
 
-
-
-let drawingZoomLevel = 1;
-
-function setDrawingZoom(multiplier){
-  drawingZoomLevel *= multiplier;
-  drawingZoomLevel = Math.max(0.55, Math.min(2.2, drawingZoomLevel));
-
-  const mobile = window.matchMedia("(max-width: 700px)").matches;
-  const landscape = window.matchMedia("(orientation: landscape) and (max-width: 950px)").matches;
-
-  let baseW = mobile ? 900 : canvas.clientWidth;
-  let baseH = mobile ? 650 : canvas.clientHeight;
-
-  if(landscape){
-    baseW = 1050;
-    baseH = 590;
-  }
-
-  canvas.style.width = Math.round(baseW * drawingZoomLevel) + "px";
-  canvas.style.height = Math.round(baseH * drawingZoomLevel) + "px";
-
-  draw();
-}
 
 function draw(){
   bindDomGlobals();
