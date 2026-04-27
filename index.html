@@ -165,16 +165,18 @@
       canvas { height: 580px; }
     }
   
-    /* PHONE COMPATIBILITY VIEW */
+    /* PHONE COMPATIBILITY VIEW - LARGE SCROLLABLE DRAWING */
     @media (max-width: 700px) {
       body {
-        padding: 6px !important;
+        padding: 4px !important;
         overflow-x: hidden;
       }
+
       .app {
         width: 100% !important;
         max-width: 100% !important;
       }
+
       .controls,
       .top,
       .main,
@@ -182,21 +184,47 @@
       .install-grid {
         grid-template-columns: 1fr !important;
       }
+
       .panel,
       .summary {
-        padding: 10px !important;
+        padding: 8px !important;
       }
+
       input,
       select,
       button {
         font-size: 16px !important;
         min-height: 44px;
       }
+
+      /* Important: keep drawing wide instead of shrinking it tiny */
+      .main > div:first-child {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        border: 1px solid #33404a;
+        border-radius: 8px;
+      }
+
       canvas {
-        width: 100% !important;
-        height: 680px !important;
-        min-height: 680px !important;
+        width: 1100px !important;
+        max-width: none !important;
+        height: 760px !important;
+        min-height: 760px !important;
         display: block !important;
+        border-radius: 8px !important;
+      }
+
+      .note {
+        text-align: left !important;
+        font-size: 12px !important;
+      }
+    }
+
+    @media (orientation: landscape) and (max-width: 950px) {
+      canvas {
+        width: 1200px !important;
+        height: 620px !important;
+        min-height: 620px !important;
       }
     }
 
@@ -210,14 +238,6 @@
       margin: 10px;
       font-size: 13px;
       white-space: pre-wrap;
-    }
-
-  
-    /* TRUE CANVAS REDRAW ZOOM */
-    canvas {
-      touch-action: none !important;
-      user-select: none;
-      -webkit-user-select: none;
     }
 
   </style>
@@ -586,7 +606,6 @@ function applyJobData(data){
   }
 
   if(typeof updateTempPreview === "function") bindDomGlobals();
-setupCanvasRedrawZoom();
 updateTempPreview();
   if(typeof updateDimmerLabel === "function") updateDimmerLabel();
   if(typeof syncFixtureOptions === "function") syncFixtureOptions();
@@ -736,7 +755,7 @@ updateTempPreview(); draw();">
 
   <div class="main">
     <div>
-      <div class="hint" style="margin-bottom:6px;">Pinch inside drawing to zoom. Drag inside drawing to pan. Double tap to reset.</div>
+      <div class="hint" style="margin-bottom:6px;">Phone tip: scroll sideways across the drawing for a larger, clearer layout.</div>
       <canvas id="c"></canvas>
       <div class="note">Measurements are center-to-center. Physical mode estimates foot-candles; true engineered accuracy requires manufacturer IES photometric files.</div>
     </div>
@@ -781,107 +800,10 @@ updateTempPreview(); draw();">
 const canvas = document.getElementById("c");
 
 const ctx = canvas.getContext("2d");
-let canvasZoomLevel = 1;
-let canvasPanX = 0;
-let canvasPanY = 0;
-let canvasGestureMode = null;
-let canvasLastX = 0;
-let canvasLastY = 0;
-let canvasStartDistance = 0;
-let canvasStartZoom = 1;
-let canvasStartPanX = 0;
-let canvasStartPanY = 0;
-let canvasStartCenterX = 0;
-let canvasStartCenterY = 0;
-let lastCanvasTapTime = 0;
 
 // Phone browser compatibility:
 // Some mobile browsers do not expose elements by id as global variables.
 // This makes the existing app code work reliably on iPhone/Android.
-
-function canvasTouchDistance(t1, t2){
-  const dx = t2.clientX - t1.clientX;
-  const dy = t2.clientY - t1.clientY;
-  return Math.sqrt(dx*dx + dy*dy);
-}
-
-function canvasTouchCenter(t1, t2){
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: ((t1.clientX + t2.clientX) / 2) - rect.left,
-    y: ((t1.clientY + t2.clientY) / 2) - rect.top
-  };
-}
-
-function setupCanvasRedrawZoom(){
-  canvas.addEventListener("touchstart", function(e){
-    if(e.touches.length === 1){
-      const now = Date.now();
-      if(now - lastCanvasTapTime < 300){
-        canvasZoomLevel = 1;
-        canvasPanX = 0;
-        canvasPanY = 0;
-        draw();
-      }
-      lastCanvasTapTime = now;
-
-      canvasGestureMode = "pan";
-      canvasLastX = e.touches[0].clientX;
-      canvasLastY = e.touches[0].clientY;
-    }
-
-    if(e.touches.length === 2){
-      e.preventDefault();
-      canvasGestureMode = "pinch";
-      canvasStartDistance = canvasTouchDistance(e.touches[0], e.touches[1]);
-      canvasStartZoom = canvasZoomLevel;
-      canvasStartPanX = canvasPanX;
-      canvasStartPanY = canvasPanY;
-      const center = canvasTouchCenter(e.touches[0], e.touches[1]);
-      canvasStartCenterX = center.x;
-      canvasStartCenterY = center.y;
-    }
-  }, {passive:false});
-
-  canvas.addEventListener("touchmove", function(e){
-    if(e.touches.length === 1 && canvasGestureMode === "pan"){
-      e.preventDefault();
-      const dx = e.touches[0].clientX - canvasLastX;
-      const dy = e.touches[0].clientY - canvasLastY;
-      canvasLastX = e.touches[0].clientX;
-      canvasLastY = e.touches[0].clientY;
-
-      canvasPanX += dx;
-      canvasPanY += dy;
-      draw();
-    }
-
-    if(e.touches.length === 2 && canvasGestureMode === "pinch"){
-      e.preventDefault();
-      const dist = canvasTouchDistance(e.touches[0], e.touches[1]);
-      const center = canvasTouchCenter(e.touches[0], e.touches[1]);
-      let newZoom = canvasStartZoom * (dist / Math.max(1, canvasStartDistance));
-      newZoom = Math.max(0.45, Math.min(4.0, newZoom));
-
-      // Keep the pinch center stable while zooming.
-      const ratio = newZoom / canvasStartZoom;
-      canvasZoomLevel = newZoom;
-      canvasPanX = center.x - (canvasStartCenterX - canvasStartPanX) * ratio;
-      canvasPanY = center.y - (canvasStartCenterY - canvasStartPanY) * ratio;
-
-      draw();
-    }
-  }, {passive:false});
-
-  canvas.addEventListener("touchend", function(e){
-    if(e.touches.length === 0) canvasGestureMode = null;
-  }, {passive:false});
-
-  canvas.addEventListener("gesturestart", e => e.preventDefault(), {passive:false});
-  canvas.addEventListener("gesturechange", e => e.preventDefault(), {passive:false});
-  canvas.addEventListener("gestureend", e => e.preventDefault(), {passive:false});
-}
-
 function bindDomGlobals(){
   [
     "lenFt","lenIn","widFt","widIn","lights","offset","offsetEndX","offsetEndY",
@@ -1673,9 +1595,14 @@ function draw(){
   bindDomGlobals();
   syncFixtureOptions();
 
-  canvas.width = canvas.clientWidth;
-  canvas.height = canvas.clientHeight;
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const ratio = window.devicePixelRatio || 1;
+
+  canvas.width = canvas.clientWidth * ratio;
+  canvas.height = canvas.clientHeight * ratio;
+
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+  ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
 
   const L = totalIn(lenFt.value,lenIn.value);
   const W = totalIn(widFt.value,widIn.value);
@@ -1716,11 +1643,10 @@ function draw(){
   const margin = 95;
   const availW = canvas.width - margin*2;
   const availH = canvas.height - margin*2;
-  const baseScale = Math.min(availW/L, availH/W);
-  const scale = baseScale * canvasZoomLevel;
+  const scale = Math.min(availW/L, availH/W);
   const roomW = L*scale, roomH = W*scale;
-  const ox = (canvas.width-roomW)/2 + canvasPanX;
-  const oy = (canvas.height-roomH)/2 + 8 + canvasPanY;
+  const ox = (canvas.width-roomW)/2;
+  const oy = (canvas.height-roomH)/2 + 8;
 
   const layout = buildPoints(L,W,N,O,rows,cols,type,locked);
 
