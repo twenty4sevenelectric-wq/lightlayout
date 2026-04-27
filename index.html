@@ -165,18 +165,16 @@
       canvas { height: 580px; }
     }
   
-    /* PHONE COMPATIBILITY VIEW - BALANCED MOBILE */
+    /* PHONE COMPATIBILITY VIEW */
     @media (max-width: 700px) {
       body {
-        padding: 4px !important;
+        padding: 6px !important;
         overflow-x: hidden;
       }
-
       .app {
         width: 100% !important;
         max-width: 100% !important;
       }
-
       .controls,
       .top,
       .main,
@@ -184,34 +182,21 @@
       .install-grid {
         grid-template-columns: 1fr !important;
       }
-
       .panel,
       .summary {
-        padding: 8px !important;
+        padding: 10px !important;
       }
-
       input,
       select,
       button {
         font-size: 16px !important;
         min-height: 44px;
       }
-
       canvas {
         width: 100% !important;
-        height: 68vh !important;
-        min-height: 520px !important;
-        max-height: 720px !important;
+        height: 680px !important;
+        min-height: 680px !important;
         display: block !important;
-        border-radius: 8px !important;
-        touch-action: manipulation;
-      }
-    }
-
-    @media (orientation: landscape) and (max-width: 950px) {
-      canvas {
-        height: 78vh !important;
-        min-height: 420px !important;
       }
     }
 
@@ -228,45 +213,38 @@
     }
 
   
-    /* DRAWING-ONLY PAN + PINCH ZOOM */
+    /* SIMPLE RELIABLE MOBILE CANVAS ZOOM */
     .drawing-viewport {
       width: 100%;
-      height: 70vh;
-      min-height: 520px;
-      overflow: hidden;
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
       border: 1px solid #35424d;
       border-radius: 8px;
       background: #050608;
-      position: relative;
-      touch-action: pan-x pan-y;
-      user-select: none;
-    }
-
-    .drawing-inner {
-      width: 100%;
-      height: 100%;
-      transform-origin: 0 0;
-      will-change: transform;
-    }
-
-    .drawing-viewport canvas {
-      width: 100% !important;
-      height: 100% !important;
-      display: block !important;
-      touch-action: pan-x pan-y;
     }
 
     @media (max-width: 700px) {
       .drawing-viewport {
-        height: 72vh;
-        min-height: 560px;
+        max-height: 74vh;
+      }
+
+      .drawing-viewport canvas {
+        width: 100% !important;
+        height: 660px !important;
+        min-height: 660px !important;
+        max-width: none !important;
+        display: block !important;
       }
     }
 
     @media (orientation: landscape) and (max-width: 950px) {
       .drawing-viewport {
-        height: 78vh;
-        min-height: 430px;
+        max-height: 82vh;
+      }
+
+      .drawing-viewport canvas {
+        height: 560px !important;
+        min-height: 560px !important;
       }
     }
 
@@ -370,7 +348,8 @@
     <div class="panel">
       <h3>2. LAYOUT TYPE</h3>
       <label>Fixture / Layout Type</label>
-      <select id="layoutType" onchange="syncFixtureOptions(); syncStudSection(); draw();">
+      <select id="layoutType" onchange="syncFixtureOptions(); syncStudSection(); draw();
+setTimeout(() => setCanvasZoom(1), 100);">
         <option value="recessed">Wafer / Canless Recessed</option>
         <option value="canlight">Can Light - New / Remodel</option>
         <option value="highbay-square">High Bay / Square</option>
@@ -636,7 +615,6 @@ function applyJobData(data){
   }
 
   if(typeof updateTempPreview === "function") bindDomGlobals();
-setupDrawingTouchControls();
 updateTempPreview();
   if(typeof updateDimmerLabel === "function") updateDimmerLabel();
   if(typeof syncFixtureOptions === "function") syncFixtureOptions();
@@ -786,25 +764,20 @@ updateTempPreview(); draw();">
 
   <div class="main">
     <div>
-      <div class="hint" style="margin-bottom:6px;">Phone tip: scroll sideways across the drawing for a larger, clearer layout.</div>
-      <button onclick="shareLayout()" style="margin-bottom:8px;">Share Layout</button>
-      <div id="drawingControls" style="display:flex; gap:8px; margin-bottom:8px;">
-        <button onclick="drawingZoomOut()">ZOOM DRAWING OUT</button>
-        <button onclick="drawingZoomReset()">FIT SCREEN</button>
-        <button onclick="drawingZoomIn()">ZOOM DRAWING IN</button>
+      <div id="drawingZoomBar" style="display:flex; gap:8px; margin-bottom:8px;">
+        <button onclick="setCanvasZoom(0.75)">ZOOM OUT</button>
+        <button onclick="setCanvasZoom(1)">FIT</button>
+        <button onclick="setCanvasZoom(1.35)">ZOOM IN</button>
       </div>
-      <div class="hint" style="margin-bottom:6px;">Use the buttons to zoom only the drawing area. Drag inside the drawing to move around.</div>
+      <div class="hint" style="margin-bottom:6px;">Use these buttons to resize the drawing. Swipe sideways when zoomed in.</div>
       <div id="drawingViewport" class="drawing-viewport">
-        <div id="drawingInner" class="drawing-inner">
-          <canvas id="c"></canvas>
-        </div>
+        <canvas id="c"></canvas>
       </div>
       <div class="note">Measurements are center-to-center. Physical mode estimates foot-candles; true engineered accuracy requires manufacturer IES photometric files.</div>
     </div>
 
     <div class="summary">
       <h3>5. MEASUREMENTS SUMMARY</h3>
-      <div class="sumrow"><span>Selected Light</span><strong id="selectedLightInfo">Tap a light</strong></div>
       <div class="sumrow"><span>Room Preset</span><strong id="sPreset">-</strong></div>
       <div class="sumrow"><span>Layout Mode</span><strong id="sMode">-</strong></div>
       <div class="sumrow"><span>Fixture Category</span><strong id="sCategory">-</strong></div>
@@ -843,76 +816,10 @@ updateTempPreview(); draw();">
 const canvas = document.getElementById("c");
 
 const ctx = canvas.getContext("2d");
-let selectedLightIndex = null;
-let latestLightPoints = [];
 
 // Phone browser compatibility:
 // Some mobile browsers do not expose elements by id as global variables.
 // This makes the existing app code work reliably on iPhone/Android.
-
-
-let drawingScale = 1;
-let drawingPanX = 0;
-let drawingPanY = 0;
-let isDraggingDrawing = false;
-let dragStartX = 0;
-let dragStartY = 0;
-
-function applyDrawingTransform(){
-  const inner = document.getElementById("drawingInner");
-  if(!inner) return;
-  inner.style.transformOrigin = "0 0";
-  inner.style.transform = `translate(${drawingPanX}px, ${drawingPanY}px) scale(${drawingScale})`;
-}
-
-function drawingZoomIn(){
-  drawingScale = Math.min(2.5, drawingScale + 0.25);
-  applyDrawingTransform();
-}
-
-function drawingZoomOut(){
-  drawingScale = Math.max(0.55, drawingScale - 0.25);
-  applyDrawingTransform();
-}
-
-function drawingZoomReset(){
-  drawingScale = 1;
-  drawingPanX = 0;
-  drawingPanY = 0;
-  applyDrawingTransform();
-}
-
-function setupDrawingTouchControls(){
-  const viewport = document.getElementById("drawingViewport");
-  if(!viewport) return;
-
-  // One-finger drag pans the drawing.
-  viewport.addEventListener("pointerdown", function(e){
-    if(e.target.tagName === "BUTTON") return;
-    isDraggingDrawing = true;
-    dragStartX = e.clientX - drawingPanX;
-    dragStartY = e.clientY - drawingPanY;
-    viewport.setPointerCapture(e.pointerId);
-  });
-
-  viewport.addEventListener("pointermove", function(e){
-    if(!isDraggingDrawing) return;
-    drawingPanX = e.clientX - dragStartX;
-    drawingPanY = e.clientY - dragStartY;
-    applyDrawingTransform();
-  });
-
-  viewport.addEventListener("pointerup", function(e){
-    isDraggingDrawing = false;
-    try { viewport.releasePointerCapture(e.pointerId); } catch(err) {}
-  });
-
-  viewport.addEventListener("pointercancel", function(e){
-    isDraggingDrawing = false;
-  });
-}
-
-
 function bindDomGlobals(){
   [
     "lenFt","lenIn","widFt","widIn","lights","offset","offsetEndX","offsetEndY",
@@ -1701,79 +1608,35 @@ function applyRoomPreset(){
 }
 
 
-function selectLightFromEvent(e){
-  if(!latestLightPoints || !latestLightPoints.length) return;
+let canvasZoom = 1;
 
-  // Avoid selecting while dragging/panning.
-  if(isDraggingDrawing) return;
+function setCanvasZoom(level){
+  canvasZoom = level;
 
-  const rect = canvas.getBoundingClientRect();
-  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  const isPhone = window.matchMedia("(max-width: 700px)").matches;
+  const isLandscapePhone = window.matchMedia("(orientation: landscape) and (max-width: 950px)").matches;
 
-  const x = (clientX - rect.left) / drawingScale;
-  const y = (clientY - rect.top) / drawingScale;
+  let baseWidth = isPhone ? window.innerWidth - 12 : canvas.parentElement.clientWidth;
+  let baseHeight = isLandscapePhone ? 560 : (isPhone ? 660 : canvas.clientHeight || 700);
 
-  let found = null;
-  let bestDist = Infinity;
+  // This changes the actual canvas display size, not a fake transform.
+  canvas.style.width = Math.round(baseWidth * canvasZoom) + "px";
+  canvas.style.height = Math.round(baseHeight * canvasZoom) + "px";
+  canvas.style.minHeight = Math.round(baseHeight * canvasZoom) + "px";
+  canvas.style.maxWidth = "none";
 
-  latestLightPoints.forEach((p, i) => {
-    const dx = x - p.x;
-    const dy = y - p.y;
-    const d = Math.sqrt(dx*dx + dy*dy);
-    if(d < bestDist && d < 34){
-      bestDist = d;
-      found = i;
-    }
-  });
-
-  selectedLightIndex = found;
-  draw();
+  setTimeout(() => {
+    if(typeof draw === "function") draw();
+  }, 50);
 }
-
-canvas.addEventListener("click", selectLightFromEvent);
-canvas.addEventListener("touchstart", function(e){
-  selectLightFromEvent(e);
-}, {passive:true});
-
-function shareLayout(){
-  const job = document.getElementById("brandJob")?.value || "Lighting Layout";
-  const room = document.getElementById("brandRoom")?.value || "";
-  const selected = selectedLightIndex !== null ? "\\nSelected Light: L" + (selectedLightIndex + 1) : "";
-  const text =
-    "LightLayout 1:3\\n" +
-    "Job: " + job + "\\n" +
-    "Room: " + room + "\\n" +
-    "Fixture Type: " + (document.getElementById("sType")?.innerText || "") + "\\n" +
-    "Fixture Count: " + (document.getElementById("lights")?.value || "") + "\\n" +
-    "Left / Right Offset: " + (document.getElementById("sOffset")?.innerText || "") + "\\n" +
-    "Top / Bottom Offset: " + (document.getElementById("sOffset2")?.innerText || "") + "\\n" +
-    "Horizontal Spacing: " + (document.getElementById("sH")?.innerText || "") + "\\n" +
-    "Vertical Spacing: " + (document.getElementById("sV")?.innerText || "") +
-    selected;
-
-  if(navigator.share){
-    navigator.share({ title:"LightLayout 1:3", text:text }).catch(()=>{});
-  } else if(navigator.clipboard){
-    navigator.clipboard.writeText(text).then(() => alert("Layout summary copied."));
-  } else {
-    alert(text);
-  }
-}
-
 
 function draw(){
   bindDomGlobals();
   syncFixtureOptions();
 
-  const ratio = window.devicePixelRatio || 1;
-
-  canvas.width = canvas.clientWidth * ratio;
-  canvas.height = canvas.clientHeight * ratio;
-
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-
-  ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
+  canvas.width = canvas.clientWidth;
+  canvas.height = canvas.clientHeight;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
 
   const L = totalIn(lenFt.value,lenIn.value);
   const W = totalIn(widFt.value,widIn.value);
@@ -1826,7 +1689,6 @@ function draw(){
   }
 
   let pts = layout.points.map(p => ({...p, x: ox+p.xIn*scale, y: oy+p.yIn*scale}));
-  latestLightPoints = pts.map(p => ({...p}));
 
   const coverageDiameter = 2 * ceiling * Math.tan((beam*Math.PI/180)/2);
   const covPx = (coverageDiameter/2)*scale;
@@ -1950,27 +1812,8 @@ function draw(){
     }
     ctx.restore();
 
-    if(i === 0){
-    ctx.save();
-    ctx.strokeStyle = "#00ff66";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(p.x - 16, p.y - 16, 32, 32);
-    ctx.restore();
-    label("START", p.x, p.y - 24, 11, "#00ff66");
-  }
-
-  if(selectedLightIndex === i){
-    ctx.save();
-    ctx.strokeStyle = "#00ffcc";
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 22, 0, Math.PI*2);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  if(!document.getElementById("showLightNumbers") || showLightNumbers.checked){
-    label("L" + String(i+1), p.x, p.y + 30, selectedLightIndex === i ? 13 : 11, selectedLightIndex === i ? "#00ffcc" : "#fff");
+    if(!document.getElementById("showLightNumbers") || showLightNumbers.checked){
+    label("L" + String(i+1), p.x, p.y + 30, 11, "#fff");
   }
   });
 
@@ -2092,10 +1935,6 @@ function draw(){
   sUniformity.innerText = calcMode.value === "field" && isFinite(fcStats.uniformity) ? `${fcStats.uniformity.toFixed(1)} : 1` : "-";
   sWarn.innerText = status;
   sWarn.style.color = statColor;
-
-  if(document.getElementById("selectedLightInfo")){
-    selectedLightInfo.innerText = selectedLightIndex !== null ? "L" + (selectedLightIndex + 1) : "Tap a light";
-  }
 
   if(layoutType.value === "canlight"){
     if(studConflicts.length){
